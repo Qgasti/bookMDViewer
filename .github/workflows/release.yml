@@ -1,12 +1,9 @@
 name: release
-# Triggers on v* tags, workflow_dispatch, or copilot/* branch pushes.
 
 on:
   push:
     tags:
       - "v*"
-    branches:
-      - "copilot/**"
   workflow_dispatch:
     inputs:
       tagName:
@@ -41,10 +38,8 @@ jobs:
         run: |
           if [[ -n "${{ github.event.inputs.tagName }}" ]]; then
             echo "name=${{ github.event.inputs.tagName }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
-            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           else
-            echo "name=v1.0.3" >> $GITHUB_OUTPUT
+            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Install Linux dependencies
