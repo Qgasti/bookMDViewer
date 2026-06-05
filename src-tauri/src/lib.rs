@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 /// Holds the file we are currently viewing plus the live filesystem watcher.
 #[derive(Default)]
@@ -94,6 +95,12 @@ fn watch_file(path: String, app: tauri::AppHandle, state: State<AppState>) -> Re
     Ok(())
 }
 
+/// Toggle the always-on-top (pin) state of the quick-note window.
+#[tauri::command]
+fn set_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> Result<(), String> {
+    window.set_always_on_top(on_top).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let state = AppState::default();
@@ -104,6 +111,39 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    if event.state() == ShortcutState::Pressed
+                        && shortcut.matches(
+                            tauri_plugin_global_shortcut::Modifiers::CONTROL
+                                | tauri_plugin_global_shortcut::Modifiers::SHIFT,
+                            tauri_plugin_global_shortcut::Code::KeyN,
+                        )
+                    {
+                        // If the quick-note window already exists, show and focus it;
+                        // otherwise create a fresh one.
+                        if let Some(win) = app.get_webview_window("quick-note") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        } else {
+                            let _ = tauri::WebviewWindowBuilder::new(
+                                app,
+                                "quick-note",
+                                tauri::WebviewUrl::App("quick-note.html".into()),
+                            )
+                            .title("Quick Note")
+                            .inner_size(440.0, 340.0)
+                            .min_inner_size(280.0, 200.0)
+                            .always_on_top(true)
+                            .decorations(true)
+                            .resizable(true)
+                            .build();
+                        }
+                    }
+                })
+                .build(),
+        )
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             get_initial_path,
@@ -111,8 +151,13 @@ pub fn run() {
             start_zoom,
             read_md,
             write_md,
-            watch_file
+            watch_file,
+            set_always_on_top
         ])
+        .setup(|app| {
+            app.global_shortcut().register("Ctrl+Shift+N")?;
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
