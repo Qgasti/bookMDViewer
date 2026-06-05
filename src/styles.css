@@ -380,6 +380,84 @@ body {
   filter: brightness(1.08);
 }
 
+/* ---------- Settings modal ---------- */
+#settings-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+#settings-modal[hidden] {
+  display: none;
+}
+.settings-box {
+  max-width: 420px;
+  width: 90%;
+}
+.settings-box h2 {
+  margin: 0 0 20px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.settings-row {
+  margin-bottom: 20px;
+}
+.settings-row label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.shortcut-field {
+  display: flex;
+  gap: 8px;
+}
+#shortcut-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+#shortcut-input.recording {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--muted);
+}
+#shortcut-reset {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#shortcut-reset:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+.settings-hint {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+#settings-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .markdown-body {
   flex: 1;
   min-width: 0;

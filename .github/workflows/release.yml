@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      tagName:
+        description: 'Release tag / version name (e.g. v1.0.3)'
+        required: true
+        default: 'v1.0.3'
 
 jobs:
   publish-tauri:
@@ -26,6 +31,16 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Compute effective tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ -n "${{ github.event.inputs.tagName }}" ]]; then
+            echo "name=${{ github.event.inputs.tagName }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -60,8 +75,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Markdown Viewer ${{ github.ref_name }}"
+          tagName: ${{ steps.tag.outputs.name }}
+          releaseName: "Markdown Viewer ${{ steps.tag.outputs.name }}"
           releaseBody: "Download the installer for your platform below."
           releaseDraft: false
           prerelease: false
@@ -73,7 +88,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VER="${GITHUB_REF_NAME#v}"
+          TAG="${{ steps.tag.outputs.name }}"
+          VER="${TAG#v}"
           OUT="Markdown.Viewer_${VER}_x64_portable.exe"
           cp "src-tauri/target/release/md-viewer.exe" "$OUT"
-          gh release upload "$GITHUB_REF_NAME" "$OUT" --clobber
+          gh release upload "$TAG" "$OUT" --clobber

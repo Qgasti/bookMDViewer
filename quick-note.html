@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quick Note</title>
+    <script type="module" src="/src/quick-note.ts" defer></script>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --fg: #1f2328;
+        --muted: #59636e;
+        --border: #d1d9e0;
+        --code-bg: #f6f8fa;
+        --accent: #0969da;
+        --btn-hover: #e6f0fc;
+        --danger: #cf222e;
+        --pinned: #bf8700;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d1117;
+          --fg: #e6edf3;
+          --muted: #9198a1;
+          --border: #30363d;
+          --code-bg: #161b22;
+          --accent: #4493f8;
+          --btn-hover: #1c2a3f;
+          --danger: #f85149;
+          --pinned: #e3b341;
+        }
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        height: 100%;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
+          Helvetica, Arial, sans-serif;
+        font-size: 14px;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      /* ---- Toolbar ---- */
+      #toolbar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg);
+        flex-shrink: 0;
+      }
+      #toolbar button {
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--muted);
+        font-size: 12px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+      }
+      #toolbar button:hover { color: var(--fg); border-color: var(--accent); }
+      #toolbar button:disabled { opacity: 0.4; cursor: default; }
+      #toolbar button:disabled:hover { color: var(--muted); border-color: var(--border); }
+      #pin-btn.pinned {
+        color: var(--pinned);
+        border-color: var(--pinned);
+        background: color-mix(in srgb, var(--pinned) 10%, transparent);
+      }
+      #save-btn.dirty { color: var(--accent); border-color: var(--accent); }
+
+      #filepath {
+        flex: 1;
+        font-size: 11px;
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 0 4px;
+      }
+
+      /* ---- Textarea ---- */
+      #note-area {
+        flex: 1;
+        width: 100%;
+        padding: 12px 14px;
+        border: none;
+        resize: none;
+        outline: none;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+          "Liberation Mono", monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        tab-size: 2;
+      }
+
+      /* ---- Status bar ---- */
+      #status-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 3px 10px;
+        border-top: 1px solid var(--border);
+        background: var(--code-bg);
+        font-size: 11px;
+        color: var(--muted);
+        flex-shrink: 0;
+      }
+      #char-count { margin-left: auto; }
+
+      /* ---- Toast ---- */
+      #toast {
+        position: fixed;
+        bottom: 28px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--fg);
+        color: var(--bg);
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 12px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s;
+        z-index: 999;
+        white-space: nowrap;
+      }
+      #toast.show { opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <div id="toolbar">
+      <button id="new-btn" title="新建 (Ctrl+N)">📄 新建</button>
+      <button id="open-btn" title="開啟 (Ctrl+O)">📂 開啟</button>
+      <button id="save-btn" title="儲存 (Ctrl+S)" disabled>💾 儲存</button>
+      <button id="save-as-btn" title="另存新檔 (Ctrl+Shift+S)">💾 另存</button>
+      <span id="filepath" title="">（未儲存）</span>
+      <button id="pin-btn" title="釘選視窗（固定最上層）">📌 釘選</button>
+    </div>
+
+    <textarea
+      id="note-area"
+      placeholder="在此輸入筆記… (Ctrl+Shift+N 可隨時開啟此視窗)"
+      spellcheck="false"
+    ></textarea>
+
+    <div id="status-bar">
+      <span id="dirty-indicator"></span>
+      <span id="char-count">0 字元</span>
+    </div>
+
+    <div id="toast"></div>
+  </body>
+</html>

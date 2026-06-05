@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use tauri::{Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 /// Holds the file we are currently viewing plus the live filesystem watcher.
 #[derive(Default)]
@@ -94,6 +95,35 @@ fn watch_file(path: String, app: tauri::AppHandle, state: State<AppState>) -> Re
     Ok(())
 }
 
+/// Toggle the always-on-top (pin) state of the quick-note window.
+#[tauri::command]
+fn set_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> Result<(), String> {
+    window.set_always_on_top(on_top).map_err(|e| e.to_string())
+}
+
+/// Register the global shortcut that opens the Quick Note window.
+/// Called by the frontend on startup with the user's saved shortcut string.
+#[tauri::command]
+fn register_quick_note_shortcut(shortcut: String, app: AppHandle) -> Result<(), String> {
+    app.global_shortcut()
+        .register(shortcut.as_str())
+        .map_err(|e| e.to_string())
+}
+
+/// Replace the current Quick Note global shortcut with a new one.
+#[tauri::command]
+fn update_quick_note_shortcut(
+    old_shortcut: String,
+    new_shortcut: String,
+    app: AppHandle,
+) -> Result<(), String> {
+    let gs = app.global_shortcut();
+    // Unregister old (ignore error – it might not be registered yet).
+    let _ = gs.unregister(old_shortcut.as_str());
+    gs.register(new_shortcut.as_str())
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let state = AppState::default();
@@ -104,6 +134,33 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    // The only registered global shortcut is the Quick Note shortcut,
+                    // so any "Pressed" event means: show or create the Quick Note window.
+                    if event.state() == ShortcutState::Pressed {
+                        if let Some(win) = app.get_webview_window("quick-note") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        } else {
+                            let _ = tauri::WebviewWindowBuilder::new(
+                                app,
+                                "quick-note",
+                                tauri::WebviewUrl::App("quick-note.html".into()),
+                            )
+                            .title("Quick Note")
+                            .inner_size(440.0, 340.0)
+                            .min_inner_size(280.0, 200.0)
+                            .always_on_top(true)
+                            .decorations(true)
+                            .resizable(true)
+                            .build();
+                        }
+                    }
+                })
+                .build(),
+        )
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             get_initial_path,
@@ -111,7 +168,10 @@ pub fn run() {
             start_zoom,
             read_md,
             write_md,
-            watch_file
+            watch_file,
+            set_always_on_top,
+            register_quick_note_shortcut,
+            update_quick_note_shortcut
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
