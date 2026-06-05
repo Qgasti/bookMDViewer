@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - "copilot/**"
   workflow_dispatch:
     inputs:
       tagName:
@@ -31,6 +33,18 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Compute effective tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ -n "${{ github.event.inputs.tagName }}" ]]; then
+            echo "name=${{ github.event.inputs.tagName }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=v1.0.3" >> $GITHUB_OUTPUT
+          fi
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -65,8 +79,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.event.inputs.tagName || github.ref_name }}
-          releaseName: "Markdown Viewer ${{ github.event.inputs.tagName || github.ref_name }}"
+          tagName: ${{ steps.tag.outputs.name }}
+          releaseName: "Markdown Viewer ${{ steps.tag.outputs.name }}"
           releaseBody: "Download the installer for your platform below."
           releaseDraft: false
           prerelease: false
@@ -78,7 +92,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.event.inputs.tagName || github.ref_name }}"
+          TAG="${{ steps.tag.outputs.name }}"
           VER="${TAG#v}"
           OUT="Markdown.Viewer_${VER}_x64_portable.exe"
           cp "src-tauri/target/release/md-viewer.exe" "$OUT"
