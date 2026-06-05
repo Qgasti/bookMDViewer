@@ -67,6 +67,10 @@ const findInput = document.getElementById("find-input") as HTMLInputElement;
 const findCount = document.getElementById("find-count") as HTMLElement;
 const closeModal = document.getElementById("close-modal") as HTMLElement;
 const toastEl = document.getElementById("toast") as HTMLElement;
+const settingsBtn = document.getElementById("settings-btn") as HTMLButtonElement;
+const settingsModal = document.getElementById("settings-modal") as HTMLElement;
+const shortcutInput = document.getElementById("shortcut-input") as HTMLInputElement;
+const shortcutReset = document.getElementById("shortcut-reset") as HTMLButtonElement;
 const appWindow = getCurrentWindow();
 let currentPath: string | null = null;
 let currentText = "";
@@ -75,6 +79,131 @@ let dirty = false;
 let suppressReloadUntil = 0;
 let mermaidLoaded = false;
 let spy: IntersectionObserver | null = null;
+
+// ---- Quick Note shortcut settings ----
+
+const DEFAULT_SHORTCUT = "Ctrl+Shift+N";
+const SHORTCUT_KEY = "quickNoteShortcut";
+
+function getSavedShortcut(): string {
+  return localStorage.getItem(SHORTCUT_KEY) ?? DEFAULT_SHORTCUT;
+}
+
+/** Convert a JS KeyboardEvent into the Tauri global-shortcut string format. */
+function buildShortcutString(ev: KeyboardEvent): string | null {
+  const parts: string[] = [];
+  if (ev.ctrlKey) parts.push("Ctrl");
+  if (ev.shiftKey) parts.push("Shift");
+  if (ev.altKey) parts.push("Alt");
+  if (ev.metaKey) parts.push("Super");
+
+  // Require at least one modifier.
+  if (parts.length === 0) return null;
+
+  // Ignore bare modifier key-presses (e.g. just pressing Ctrl).
+  const ignored = ["Control", "Shift", "Alt", "Meta", "Super", "OS"];
+  if (ignored.includes(ev.key)) return null;
+
+  // Convert JS key name → Tauri key name.
+  let key = ev.key;
+  if (key.length === 1) {
+    key = key.toUpperCase();
+  } else if (key === " ") {
+    key = "Space";
+  } else if (key.startsWith("Arrow")) {
+    key = key.slice(5); // ArrowUp → Up
+  } else if (key === "Escape") {
+    key = "Escape";
+  } else if (key === "Enter") {
+    key = "Return";
+  } else if (key === "Backspace") {
+    key = "Backspace";
+  } else if (key === "Delete") {
+    key = "Delete";
+  } else if (key === "Tab") {
+    key = "Tab";
+  } else if (/^F\d+$/.test(key)) {
+    // F1–F12 pass through unchanged.
+  } else {
+    // Use the code-based key for symbols/etc.
+    // "KeyN" → "N", "Digit1" → "1", "NumpadAdd" → "NumpadAdd" (keep full name)
+    const codeKey = ev.code.replace(/^Key/, "").replace(/^Digit/, "");
+    key = codeKey || key;
+  }
+
+  parts.push(key);
+  return parts.join("+");
+}
+
+let pendingShortcut = "";
+
+function openSettings(): void {
+  pendingShortcut = getSavedShortcut();
+  shortcutInput.value = pendingShortcut;
+  shortcutInput.classList.remove("recording");
+  settingsModal.hidden = false;
+}
+function closeSettings(): void {
+  settingsModal.hidden = true;
+  shortcutInput.classList.remove("recording");
+}
+
+settingsBtn.addEventListener("click", openSettings);
+(document.getElementById("settings-cancel") as HTMLButtonElement).addEventListener("click", closeSettings);
+settingsModal.addEventListener("click", (ev) => {
+  if (ev.target === settingsModal) closeSettings();
+});
+
+shortcutReset.addEventListener("click", () => {
+  pendingShortcut = DEFAULT_SHORTCUT;
+  shortcutInput.value = DEFAULT_SHORTCUT;
+  shortcutInput.classList.remove("recording");
+});
+
+shortcutInput.addEventListener("click", () => {
+  shortcutInput.classList.add("recording");
+  shortcutInput.value = "請按下快捷鍵組合…";
+});
+
+shortcutInput.addEventListener("blur", () => {
+  shortcutInput.classList.remove("recording");
+  if (shortcutInput.value === "請按下快捷鍵組合…") {
+    shortcutInput.value = pendingShortcut;
+  }
+});
+
+shortcutInput.addEventListener("keydown", (ev) => {
+  if (!shortcutInput.classList.contains("recording")) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+
+  const combo = buildShortcutString(ev);
+  if (combo) {
+    pendingShortcut = combo;
+    shortcutInput.value = combo;
+    shortcutInput.classList.remove("recording");
+  }
+});
+
+(document.getElementById("settings-save") as HTMLButtonElement).addEventListener("click", async () => {
+  const oldShortcut = getSavedShortcut();
+  const newShortcut = pendingShortcut || oldShortcut;
+  if (newShortcut === oldShortcut) {
+    closeSettings();
+    return;
+  }
+  try {
+    await invoke("update_quick_note_shortcut", {
+      oldShortcut,
+      newShortcut,
+    });
+    localStorage.setItem(SHORTCUT_KEY, newShortcut);
+    toast(`快捷鍵已更新為 ${newShortcut}`);
+    closeSettings();
+  } catch (e) {
+    toast(`快捷鍵設定失敗: ${String(e)}`);
+  }
+});
 
 // Build the left-hand outline from the rendered headings.
 function buildToc(): void {
@@ -690,6 +819,13 @@ async function init(): Promise<void> {
   const zoom = await invoke<number>("start_zoom");
   if (zoom && zoom > 0) {
     await getCurrentWebview().setZoom(zoom);
+  }
+
+  // Register the Quick Note global shortcut (user-configurable; stored in localStorage).
+  try {
+    await invoke("register_quick_note_shortcut", { shortcut: getSavedShortcut() });
+  } catch (e) {
+    console.warn("Could not register Quick Note shortcut:", e);
   }
 }
 

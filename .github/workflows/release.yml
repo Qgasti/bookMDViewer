@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      tagName:
+        description: 'Release tag / version name (e.g. v1.0.3)'
+        required: true
+        default: 'v1.0.3'
 
 jobs:
   publish-tauri:
@@ -60,8 +65,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Markdown Viewer ${{ github.ref_name }}"
+          tagName: ${{ github.event.inputs.tagName || github.ref_name }}
+          releaseName: "Markdown Viewer ${{ github.event.inputs.tagName || github.ref_name }}"
           releaseBody: "Download the installer for your platform below."
           releaseDraft: false
           prerelease: false
@@ -73,7 +78,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VER="${GITHUB_REF_NAME#v}"
+          TAG="${{ github.event.inputs.tagName || github.ref_name }}"
+          VER="${TAG#v}"
           OUT="Markdown.Viewer_${VER}_x64_portable.exe"
           cp "src-tauri/target/release/md-viewer.exe" "$OUT"
-          gh release upload "$GITHUB_REF_NAME" "$OUT" --clobber
+          gh release upload "$TAG" "$OUT" --clobber

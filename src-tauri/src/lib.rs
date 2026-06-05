@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use tauri::{Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 /// Holds the file we are currently viewing plus the live filesystem watcher.
@@ -101,6 +101,29 @@ fn set_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> Result<(), S
     window.set_always_on_top(on_top).map_err(|e| e.to_string())
 }
 
+/// Register the global shortcut that opens the Quick Note window.
+/// Called by the frontend on startup with the user's saved shortcut string.
+#[tauri::command]
+fn register_quick_note_shortcut(shortcut: String, app: AppHandle) -> Result<(), String> {
+    app.global_shortcut()
+        .register(shortcut.as_str())
+        .map_err(|e| e.to_string())
+}
+
+/// Replace the current Quick Note global shortcut with a new one.
+#[tauri::command]
+fn update_quick_note_shortcut(
+    old_shortcut: String,
+    new_shortcut: String,
+    app: AppHandle,
+) -> Result<(), String> {
+    let gs = app.global_shortcut();
+    // Unregister old (ignore error – it might not be registered yet).
+    let _ = gs.unregister(old_shortcut.as_str());
+    gs.register(new_shortcut.as_str())
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let state = AppState::default();
@@ -113,16 +136,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, shortcut, event| {
-                    if event.state() == ShortcutState::Pressed
-                        && shortcut.matches(
-                            tauri_plugin_global_shortcut::Modifiers::CONTROL
-                                | tauri_plugin_global_shortcut::Modifiers::SHIFT,
-                            tauri_plugin_global_shortcut::Code::KeyN,
-                        )
-                    {
-                        // If the quick-note window already exists, show and focus it;
-                        // otherwise create a fresh one.
+                .with_handler(|app, _shortcut, event| {
+                    // The only registered global shortcut is the Quick Note shortcut,
+                    // so any "Pressed" event means: show or create the Quick Note window.
+                    if event.state() == ShortcutState::Pressed {
                         if let Some(win) = app.get_webview_window("quick-note") {
                             let _ = win.show();
                             let _ = win.set_focus();
@@ -152,12 +169,10 @@ pub fn run() {
             read_md,
             write_md,
             watch_file,
-            set_always_on_top
+            set_always_on_top,
+            register_quick_note_shortcut,
+            update_quick_note_shortcut
         ])
-        .setup(|app| {
-            app.global_shortcut().register("Ctrl+Shift+N")?;
-            Ok(())
-        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
