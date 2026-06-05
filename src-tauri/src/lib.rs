@@ -8,6 +8,8 @@ struct FileEntry {
 }
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -169,6 +171,47 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let show =
+                MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+            let quit =
+                MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+
+            TrayIconBuilder::new()
+                .icon(
+                    app.default_window_icon()
+                        .expect("app icon should be configured")
+                        .clone(),
+                )
+                .tooltip("Markdown Viewer")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "quit" => app.exit(0),
+                    "show" => {
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::DoubleClick {
+                        button: MouseButton::Left,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+            Ok(())
+        })
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -212,6 +255,18 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            // Hide the main window to the tray instead of closing it.
+            if let tauri::RunEvent::WindowEvent { label, event: win_event, .. } = &event {
+                if label == "main" {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = win_event {
+                        api.prevent_close();
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.hide();
+                        }
+                    }
+                }
+            }
+
             // macOS delivers file-association opens as a runtime event.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = &event {
