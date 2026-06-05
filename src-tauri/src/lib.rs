@@ -1,7 +1,15 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+#[derive(serde::Serialize)]
+struct FileEntry {
+    name: String,
+    path: String,
+}
+
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -101,6 +109,35 @@ fn set_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> Result<(), S
     window.set_always_on_top(on_top).map_err(|e| e.to_string())
 }
 
+/// List all .md / .txt files (non-recursive) in `dir`, sorted by name.
+#[tauri::command]
+fn list_dir(dir: String) -> Result<Vec<FileEntry>, String> {
+    let path = std::path::Path::new(&dir);
+    let mut entries: Vec<FileEntry> = std::fs::read_dir(path)
+        .map_err(|e| format!("無法讀取目錄: {e}"))?
+        .filter_map(|res| res.ok())
+        .filter(|e| e.path().is_file())
+        .filter_map(|e| {
+            let p = e.path();
+            let ext = p.extension()?.to_string_lossy().to_lowercase();
+            if ext == "md" || ext == "txt" || ext == "markdown" {
+                Some(FileEntry {
+                    name: p
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned(),
+                    path: p.to_string_lossy().into_owned(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(entries)
+}
+
 /// Register the global shortcut that opens the Quick Note window.
 /// Called by the frontend on startup with the user's saved shortcut string.
 #[tauri::command]
@@ -134,6 +171,47 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let show =
+                MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+            let quit =
+                MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+
+            TrayIconBuilder::new()
+                .icon(
+                    app.default_window_icon()
+                        .expect("app icon should be configured")
+                        .clone(),
+                )
+                .tooltip("Markdown Viewer")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "quit" => app.exit(0),
+                    "show" => {
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::DoubleClick {
+                        button: MouseButton::Left,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+            Ok(())
+        })
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -170,12 +248,25 @@ pub fn run() {
             write_md,
             watch_file,
             set_always_on_top,
+            list_dir,
             register_quick_note_shortcut,
             update_quick_note_shortcut
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            // Hide the main window to the tray instead of closing it.
+            if let tauri::RunEvent::WindowEvent { label, event: win_event, .. } = &event {
+                if label == "main" {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = win_event {
+                        api.prevent_close();
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.hide();
+                        }
+                    }
+                }
+            }
+
             // macOS delivers file-association opens as a runtime event.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = &event {
