@@ -1,4 +1,5 @@
 name: release
+# Triggers on v* tags, workflow_dispatch, or copilot/* branch pushes.
 
 on:
   push:
