@@ -3,6 +3,11 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 const noteArea = document.getElementById("note-area") as HTMLTextAreaElement;
+
+// Set placeholder based on user's configured Quick Note shortcut.
+const DEFAULT_SHORTCUT = "Ctrl+Shift+N";
+const SHORTCUT_KEY = "quickNoteShortcut";
+noteArea.placeholder = `在此輸入筆記… (${localStorage.getItem(SHORTCUT_KEY) ?? DEFAULT_SHORTCUT} 可隨時開啟此視窗)`;
 const saveBtn = document.getElementById("save-btn") as HTMLButtonElement;
 const saveAsBtn = document.getElementById("save-as-btn") as HTMLButtonElement;
 const newBtn = document.getElementById("new-btn") as HTMLButtonElement;

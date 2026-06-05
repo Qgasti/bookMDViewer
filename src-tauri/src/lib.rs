@@ -1,6 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+#[derive(serde::Serialize)]
+struct FileEntry {
+    name: String,
+    path: String,
+}
+
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
@@ -101,6 +107,35 @@ fn set_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> Result<(), S
     window.set_always_on_top(on_top).map_err(|e| e.to_string())
 }
 
+/// List all .md / .txt files (non-recursive) in `dir`, sorted by name.
+#[tauri::command]
+fn list_dir(dir: String) -> Result<Vec<FileEntry>, String> {
+    let path = std::path::Path::new(&dir);
+    let mut entries: Vec<FileEntry> = std::fs::read_dir(path)
+        .map_err(|e| format!("無法讀取目錄: {e}"))?
+        .filter_map(|res| res.ok())
+        .filter(|e| e.path().is_file())
+        .filter_map(|e| {
+            let p = e.path();
+            let ext = p.extension()?.to_string_lossy().to_lowercase();
+            if ext == "md" || ext == "txt" || ext == "markdown" {
+                Some(FileEntry {
+                    name: p
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned(),
+                    path: p.to_string_lossy().into_owned(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(entries)
+}
+
 /// Register the global shortcut that opens the Quick Note window.
 /// Called by the frontend on startup with the user's saved shortcut string.
 #[tauri::command]
@@ -170,6 +205,7 @@ pub fn run() {
             write_md,
             watch_file,
             set_always_on_top,
+            list_dir,
             register_quick_note_shortcut,
             update_quick_note_shortcut
         ])

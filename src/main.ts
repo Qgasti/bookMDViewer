@@ -8,7 +8,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 // hljs theme CSS as strings, so HTML export can be fully self-contained.
 import hljsLightCss from "highlight.js/styles/github.css?inline";
@@ -71,8 +71,15 @@ const settingsBtn = document.getElementById("settings-btn") as HTMLButtonElement
 const settingsModal = document.getElementById("settings-modal") as HTMLElement;
 const shortcutInput = document.getElementById("shortcut-input") as HTMLInputElement;
 const shortcutReset = document.getElementById("shortcut-reset") as HTMLButtonElement;
+const sidebarEl = document.getElementById("sidebar") as HTMLElement;
+const sidebarToggle = document.getElementById("sidebar-toggle") as HTMLButtonElement;
+const folderBtn = document.getElementById("folder-btn") as HTMLButtonElement;
+const newFileBtn = document.getElementById("new-file-btn") as HTMLButtonElement;
+const fileList = document.getElementById("file-list") as HTMLElement;
+const sidebarFolderName = document.getElementById("sidebar-folder-name") as HTMLElement;
 const appWindow = getCurrentWindow();
 let currentPath: string | null = null;
+let currentFolder: string | null = null;
 let currentText = "";
 let editMode = false;
 let dirty = false;
@@ -106,10 +113,11 @@ function buildShortcutString(ev: KeyboardEvent): string | null {
 
   // Convert JS key name → Tauri key name.
   let key = ev.key;
-  if (key.length === 1) {
-    key = key.toUpperCase();
-  } else if (key === " ") {
+  // Check space BEFORE length-1, because " ".length === 1
+  if (key === " ") {
     key = "Space";
+  } else if (key.length === 1) {
+    key = key.toUpperCase();
   } else if (key.startsWith("Arrow")) {
     key = key.slice(5); // ArrowUp → Up
   } else if (key === "Escape") {
@@ -420,6 +428,7 @@ async function openFile(
     if (watch) {
       await invoke("watch_file", { path });
     }
+    updateFileListActive();
   } catch (e) {
     content.innerHTML = `<div class="empty-state"><p>${String(e)}</p></div>`;
     buildToc();
@@ -458,7 +467,11 @@ function toggleEdit(): void {
 }
 
 async function save(): Promise<void> {
-  if (!currentPath || !dirty) return;
+  if (!dirty) return;
+  if (!currentPath) {
+    await saveAs();
+    return;
+  }
   try {
     // Ignore the watcher event our own write is about to trigger.
     suppressReloadUntil = Date.now() + 1000;
@@ -466,14 +479,121 @@ async function save(): Promise<void> {
     currentText = editor.value;
     dirty = false;
     setTitle();
+    toast("已儲存");
   } catch (e) {
+    toast(`儲存失敗: ${String(e)}`);
     console.error("save failed", e);
+  }
+}
+
+async function saveAs(): Promise<void> {
+  const defaultPath = currentFolder
+    ? `${currentFolder}/new.md`
+    : (currentPath ?? undefined);
+  const path = await saveDialog({
+    filters: [
+      { name: "Markdown", extensions: ["md", "markdown"] },
+      { name: "文字檔", extensions: ["txt"] },
+      { name: "所有檔案", extensions: ["*"] },
+    ],
+    defaultPath,
+  });
+  if (!path) return;
+  try {
+    suppressReloadUntil = Date.now() + 1000;
+    await invoke("write_md", { path, content: editor.value });
+    currentPath = path;
+    currentText = editor.value;
+    dirty = false;
+    addRecent(path);
+    setTitle();
+    await invoke("watch_file", { path });
+    renderRecents();
+    if (!sidebarEl.hidden && currentFolder) {
+      await refreshFileList();
+    } else {
+      updateFileListActive();
+    }
+    toast("已儲存");
+  } catch (e) {
+    toast(`儲存失敗: ${String(e)}`);
+    console.error("saveAs failed", e);
   }
 }
 
 editToggle.addEventListener("click", toggleEdit);
 editor.addEventListener("input", schedulePreview);
 saveBtn.addEventListener("click", () => void save());
+
+// ---------- Sidebar file browser ----------
+
+function updateFileListActive(): void {
+  fileList.querySelectorAll<HTMLElement>(".file-item").forEach((el) => {
+    el.classList.toggle("active", el.dataset.path === currentPath);
+  });
+}
+
+function renderFileList(files: Array<{ name: string; path: string }>): void {
+  fileList.innerHTML = "";
+  for (const f of files) {
+    const item = document.createElement("div");
+    item.className = "file-item";
+    item.dataset.path = f.path;
+    item.textContent = f.name;
+    item.title = f.path;
+    if (f.path === currentPath) item.classList.add("active");
+    item.addEventListener("click", () => void openFile(f.path));
+    fileList.appendChild(item);
+  }
+}
+
+async function refreshFileList(): Promise<void> {
+  if (!currentFolder) return;
+  try {
+    const files = await invoke<Array<{ name: string; path: string }>>("list_dir", {
+      dir: currentFolder,
+    });
+    renderFileList(files);
+  } catch (e) {
+    toast(`讀取資料夾失敗: ${String(e)}`);
+  }
+}
+
+async function selectFolder(): Promise<void> {
+  const dir = await openDialog({ directory: true, multiple: false });
+  if (typeof dir !== "string") return;
+  currentFolder = dir;
+  localStorage.setItem("lastFolder", dir);
+  const folderShortName = dir.split(/[\\/]/).pop() ?? dir;
+  sidebarFolderName.textContent = folderShortName;
+  sidebarFolderName.title = dir;
+  await refreshFileList();
+}
+
+async function newFileAction(): Promise<void> {
+  if (dirty) {
+    const ok = window.confirm("有未儲存的變更，確定要放棄並新建檔案嗎？");
+    if (!ok) return;
+  }
+  currentPath = null;
+  currentText = "";
+  dirty = false;
+  content.innerHTML =
+    '<div class="empty-state"><p>新建檔案</p><p><small>在編輯模式中輸入內容，按 Ctrl+S 儲存</small></p></div>';
+  buildToc();
+  setEditMode(true);
+  setTitle();
+  updateFileListActive();
+}
+
+function toggleSidebar(): void {
+  sidebarEl.hidden = !sidebarEl.hidden;
+  localStorage.setItem("sidebarVisible", sidebarEl.hidden ? "false" : "true");
+}
+
+sidebarToggle.addEventListener("click", toggleSidebar);
+folderBtn.addEventListener("click", () => void selectFolder());
+newFileBtn.addEventListener("click", () => void newFileAction());
 
 // ---------- Toast ----------
 let toastTimer: number | undefined;
@@ -636,7 +756,10 @@ applyFontScale();
 async function openViaDialog(): Promise<void> {
   const selected = await openDialog({
     multiple: false,
-    filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+    filters: [
+      { name: "文字檔 (.md, .txt)", extensions: ["md", "markdown", "txt"] },
+      { name: "所有檔案", extensions: ["*"] },
+    ],
   });
   if (typeof selected === "string") await openFile(selected);
 }
@@ -737,9 +860,15 @@ window.addEventListener("keydown", (ev) => {
   } else if (ev.ctrlKey && (ev.key === "e" || ev.key === "E")) {
     ev.preventDefault();
     toggleEdit();
-  } else if (ev.ctrlKey && (ev.key === "s" || ev.key === "S")) {
+  } else if (ev.ctrlKey && ev.shiftKey && (ev.key === "s" || ev.key === "S")) {
+    ev.preventDefault();
+    void saveAs();
+  } else if (ev.ctrlKey && !ev.shiftKey && (ev.key === "s" || ev.key === "S")) {
     ev.preventDefault();
     void save();
+  } else if (ev.ctrlKey && (ev.key === "b" || ev.key === "B")) {
+    ev.preventDefault();
+    toggleSidebar();
   } else if (ev.ctrlKey && (ev.key === "=" || ev.key === "+")) {
     ev.preventDefault();
     bumpFont(0.1);
@@ -784,10 +913,10 @@ async function init(): Promise<void> {
     void openFile(ev.payload);
   });
 
-  // Drag-and-drop a .md file onto the window.
+  // Drag-and-drop a .md / .txt file onto the window.
   await getCurrentWebview().onDragDropEvent((ev) => {
     if (ev.payload.type === "drop") {
-      const file = ev.payload.paths.find((p) => /\.(md|markdown)$/i.test(p));
+      const file = ev.payload.paths.find((p) => /\.(md|markdown|txt)$/i.test(p));
       if (file) {
         void openFile(file);
       }
@@ -804,6 +933,22 @@ async function init(): Promise<void> {
 
   // Populate the empty-state recent-files list.
   renderRecents();
+
+  // Restore sidebar visibility preference (default: visible).
+  const sidebarPref = localStorage.getItem("sidebarVisible");
+  sidebarEl.hidden = sidebarPref === "false";
+
+  // Restore last opened folder.
+  const lastFolder = localStorage.getItem("lastFolder");
+  if (lastFolder) {
+    currentFolder = lastFolder;
+    const folderShortName = lastFolder.split(/[\\/]/).pop() ?? lastFolder;
+    sidebarFolderName.textContent = folderShortName;
+    sidebarFolderName.title = lastFolder;
+    if (!sidebarEl.hidden) {
+      await refreshFileList();
+    }
+  }
 
   // File the app was launched with (Windows / Linux association).
   const initial = await invoke<string | null>("get_initial_path");

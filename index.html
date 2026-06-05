@@ -9,6 +9,7 @@
   </head>
   <body>
     <div id="toolbar">
+      <button id="sidebar-toggle" class="icon-btn" title="切換檔案瀏覽器 (Ctrl+B)" aria-label="Toggle file browser">🗂</button>
       <button id="open-btn" class="icon-btn" title="Open file (Ctrl+O)" aria-label="Open file">📂</button>
       <button id="font-dec" class="icon-btn" title="Decrease font (Ctrl+-)" aria-label="Decrease font size">A−</button>
       <button id="font-inc" class="icon-btn" title="Increase font (Ctrl++)" aria-label="Increase font size">A+</button>
@@ -27,6 +28,14 @@
       <button id="find-close" title="Close (Esc)" aria-label="Close find">✕</button>
     </div>
     <div id="layout">
+      <div id="sidebar" hidden>
+        <div class="sidebar-header">
+          <button id="folder-btn" class="sidebar-icon-btn" title="選擇工作資料夾">📁</button>
+          <span id="sidebar-folder-name" class="sidebar-folder-name" title="">（未選擇資料夾）</span>
+          <button id="new-file-btn" class="sidebar-icon-btn" title="新建檔案">＋</button>
+        </div>
+        <div id="file-list"></div>
+      </div>
       <nav id="toc" aria-label="Table of contents"></nav>
       <textarea
         id="editor"
